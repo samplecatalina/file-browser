@@ -1,4 +1,10 @@
-I want to build a uniform web-based file browser for our data analytics tool to retire our current system native file browser. In this new file browser, if we detect any folder that contains a .session file, we would identify this whole folder to be a 'session project' and offer our user to 'open' this folder as a session project, instead of continuing to dive deep into it. The frontend of this file browser is planned to build with TypeScript/React/Tailwind CSS/AntD, and the backend of this file browser is planned to build with Python/FastAPI. 
+I want to build a uniform web-based file browser for our data analytics tool to retire our current system native file browser. 
+
+In this new file browser, if we detect any folder that contains a .session file, we would identify this whole folder to be a 'session project' and offer our user to 'open' this folder as a session project, instead of continuing to dive deep into it. 
+
+
+
+The frontend of this file browser is planned to build with TypeScript/React/Tailwind CSS/AntD, and the backend of this file browser is planned to build with Python/FastAPI. 
 
 ## Overview
 
