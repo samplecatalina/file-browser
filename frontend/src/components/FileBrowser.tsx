@@ -1,178 +1,204 @@
 import React, { useState, useEffect } from 'react';
-import { List, Button, Breadcrumb, Spin, message, Dropdown, Space, Tooltip } from 'antd';
-import { 
-  FolderOutlined, 
-  FileOutlined, 
-  UpOutlined, 
-  SortAscendingOutlined,
-  SortDescendingOutlined,
+import { Layout, List, Button, Breadcrumb, Spin, message, Tooltip } from 'antd';
+import {
+  FolderOutlined,
+  FileOutlined,
+  PushpinOutlined,
   InfoCircleOutlined
 } from '@ant-design/icons';
-import { fetchFiles, getFileDetails, FileItem, formatFileSize } from '../api';
+import { useParams, useNavigate } from 'react-router-dom';
+import QuickAccess, { FOLDER_PINNED_EVENT } from './QuickAccess';
 
-export const FileBrowser: React.FC = () => {
-  const [path, setPath] = useState<string>('');
-  const [items, setItems] = useState<FileItem[]>([]);
-  const [loading, setLoading] = useState(false);
-  const [sortBy, setSortBy] = useState<'name' | 'modified' | 'size'>('name');
-  const [order, setOrder] = useState<'asc' | 'desc'>('asc');
-  const [selectedItem, setSelectedItem] = useState<FileItem | null>(null);
+const { Content } = Layout;
 
-  const load = async (newPath: string) => {
+interface FileItem {
+  name: string;
+  path: string;
+  type: 'file' | 'directory';
+  size?: number;
+  modified: string;
+  created: string;
+  session?: boolean;
+  session_info?: {
+    file_count: number;
+    session_file: string;
+  };
+}
+
+const FileBrowser: React.FC = () => {
+  const params = useParams<{ "*": string }>();
+  const path = params["*"] || '';
+  const navigate = useNavigate();
+  const [files, setFiles] = useState<FileItem[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
+
+  const fetchFiles = async () => {
     setLoading(true);
+    setError(null);
     try {
-      const data = await fetchFiles({ path: newPath, sortBy, order });
-      setItems(data);
-      setPath(newPath);
-      setSelectedItem(null);
-    } catch (e) {
-      message.error('Could not fetch files');
+      console.log('Fetching files for path:', path);
+      const encodedPath = path ? encodeURIComponent(path) : '';
+      const response = await fetch(`/api/files?path=${encodedPath}`);
+      if (!response.ok) {
+        const errorData = await response.json().catch(() => null);
+        throw new Error(errorData?.detail || `Failed to fetch files: ${response.status}`);
+      }
+      const data = await response.json();
+      console.log('Received files:', data);
+      setFiles(data);
+    } catch (err) {
+      const errorMessage = err instanceof Error ? err.message : 'An error occurred';
+      setError(errorMessage);
+      message.error(errorMessage);
     } finally {
       setLoading(false);
     }
   };
 
-  const handleSort = (newSortBy: 'name' | 'modified' | 'size') => {
-    if (sortBy === newSortBy) {
-      setOrder(order === 'asc' ? 'desc' : 'asc');
-    } else {
-      setSortBy(newSortBy);
-      setOrder('asc');
-    }
-  };
-
-  const handleItemClick = async (item: FileItem) => {
-    setSelectedItem(item);
-    if (item.type === 'directory' && !item.session) {
-      await load(item.path);
-    }
-  };
-
-  const handleSessionOpen = (item: FileItem) => {
-    message.info(`Opening session project: ${item.name}`);
-    // TODO: Implement session opening logic
-  };
-
-  const handleGoUp = () => {
-    const parentPath = path.split('/').slice(0, -1).join('/');
-    load(parentPath);
-  };
-
   useEffect(() => {
-    load(path);
-  }, [sortBy, order]);
+    console.log('Path changed to:', path);
+    fetchFiles();
+  }, [path]);
 
-  const sortItems = [
-    {
-      key: 'name',
-      label: 'Sort by Name',
-      onClick: () => handleSort('name')
-    },
-    {
-      key: 'modified',
-      label: 'Sort by Modified Date',
-      onClick: () => handleSort('modified')
-    },
-    {
-      key: 'size',
-      label: 'Sort by Size',
-      onClick: () => handleSort('size')
+  const handleItemClick = (item: FileItem) => {
+    if (item.type === 'directory') {
+      const newPath = path ? `${path}/${item.name}` : item.name;
+      console.log('Navigating to path:', newPath);
+      navigate(`/browse/${newPath}`);
     }
-  ];
+  };
 
+  const handlePinClick = async (item: FileItem) => {
+    try {
+      const response = await fetch('/api/quick-access', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({ path: item.path }),
+      });
+
+      const data = await response.json();
+      
+      if (response.ok) {
+        message.success('Folder pinned to Quick Access');
+        window.dispatchEvent(new Event(FOLDER_PINNED_EVENT));
+      } else {
+        message.error(data.detail || 'Failed to pin folder');
+      }
+    } catch (error) {
+      console.error('Error pinning folder:', error);
+      message.error('Error pinning folder');
+    }
+  };
+
+  const pathParts = path.split('/').filter(Boolean);
   const breadcrumbItems = [
     {
-      title: 'root',
-      onClick: () => load('')
+      title: 'Root',
+      onClick: () => navigate('/browse')
     },
-    ...path.split('/').map((seg, idx) => ({
-      title: seg,
-      onClick: () => load(path.split('/').slice(0, idx + 1).join('/'))
-    }))
+    ...pathParts.map((part: string, index: number) => {
+      const currentPath = pathParts.slice(0, index + 1).join('/');
+      return {
+        title: part,
+        onClick: () => navigate(`/browse/${currentPath}`)
+      };
+    })
   ];
 
-  return (
-    <div className="p-4">
-      <div className="flex justify-between items-center mb-4">
-        <Breadcrumb items={breadcrumbItems} />
-        <Space>
-          <Button 
-            icon={<UpOutlined />} 
-            onClick={handleGoUp}
-            disabled={!path}
-          >
-            Up
-          </Button>
-          <Dropdown menu={{ items: sortItems }} trigger={['click']}>
-            <Button>
-              Sort {order === 'asc' ? <SortAscendingOutlined /> : <SortDescendingOutlined />}
-            </Button>
-          </Dropdown>
-        </Space>
-      </div>
+  const formatFileSize = (bytes?: number) => {
+    if (bytes === undefined) return '';
+    const units = ['B', 'KB', 'MB', 'GB', 'TB'];
+    let size = bytes;
+    let unitIndex = 0;
+    while (size >= 1024 && unitIndex < units.length - 1) {
+      size /= 1024;
+      unitIndex++;
+    }
+    return `${size.toFixed(1)} ${units[unitIndex]}`;
+  };
 
-      {loading ? (
-        <div className="flex justify-center items-center h-64">
-          <Spin size="large" />
+  const formatDate = (dateString: string) => {
+    return new Date(dateString).toLocaleString();
+  };
+
+  if (loading) {
+    return (
+      <div style={{ display: 'flex', justifyContent: 'center', alignItems: 'center', minHeight: '200px' }}>
+        <Spin size="large" />
+      </div>
+    );
+  }
+
+  if (error) {
+    return (
+      <div style={{ padding: '16px', color: 'red' }}>{error}</div>
+    );
+  }
+
+  return (
+    <Layout style={{ minHeight: '100vh' }}>
+      <Content style={{ padding: '24px' }}>
+        <div style={{ display: 'flex', gap: '24px' }}>
+          <div style={{ width: '250px' }}>
+            <QuickAccess />
+          </div>
+          <div style={{ flex: 1 }}>
+            <Breadcrumb
+              items={breadcrumbItems}
+              style={{ marginBottom: '16px' }}
+            />
+            <List
+              bordered
+              dataSource={files}
+              renderItem={(item: FileItem) => (
+                <List.Item
+                  actions={item.type === 'directory' ? [
+                    <Tooltip title="Pin to Quick Access" key="pin">
+                      <Button
+                        type="text"
+                        icon={<PushpinOutlined />}
+                        onClick={(e: React.MouseEvent) => {
+                          e.stopPropagation();
+                          handlePinClick(item);
+                        }}
+                      />
+                    </Tooltip>
+                  ] : []}
+                  onClick={() => handleItemClick(item)}
+                  style={{ cursor: item.type === 'directory' ? 'pointer' : 'default' }}
+                >
+                  <List.Item.Meta
+                    avatar={item.type === 'directory' ? <FolderOutlined /> : <FileOutlined />}
+                    title={
+                      <span>
+                        {item.name}
+                        {item.session && (
+                          <Tooltip title={`Session Project (${item.session_info?.file_count} files)`}>
+                            <InfoCircleOutlined style={{ marginLeft: 8, color: '#1890ff' }} />
+                          </Tooltip>
+                        )}
+                      </span>
+                    }
+                    description={
+                      <div style={{ display: 'flex', gap: '16px' }}>
+                        {item.type === 'file' && (
+                          <span>{formatFileSize(item.size)}</span>
+                        )}
+                        <span>Modified: {formatDate(item.modified)}</span>
+                      </div>
+                    }
+                  />
+                </List.Item>
+              )}
+            />
+          </div>
         </div>
-      ) : (
-        <List
-          bordered
-          dataSource={items}
-          renderItem={item => (
-            <List.Item
-              className={`cursor-pointer hover:bg-gray-50 ${
-                selectedItem?.path === item.path ? 'bg-blue-50' : ''
-              }`}
-              onClick={() => handleItemClick(item)}
-              actions={item.type === 'directory' ? [
-                item.session ? (
-                  <Button 
-                    type="primary" 
-                    onClick={(e) => {
-                      e.stopPropagation();
-                      handleSessionOpen(item);
-                    }}
-                  >
-                    Open Session
-                  </Button>
-                ) : (
-                  <Button 
-                    onClick={(e) => {
-                      e.stopPropagation();
-                      load(item.path);
-                    }}
-                  >
-                    Open
-                  </Button>
-                )
-              ] : []}
-            >
-              <List.Item.Meta
-                avatar={item.type === 'directory' ? <FolderOutlined /> : <FileOutlined />}
-                title={
-                  <Space>
-                    {item.name}
-                    {item.session && (
-                      <Tooltip title={`Session Project (${item.session_info?.file_count} files)`}>
-                        <InfoCircleOutlined className="text-blue-500" />
-                      </Tooltip>
-                    )}
-                  </Space>
-                }
-                description={
-                  <Space direction="vertical" size={0}>
-                    <span>{item.type === 'file' ? formatFileSize(item.size) : ''}</span>
-                    <span className="text-gray-500 text-xs">
-                      Modified: {new Date(item.modified).toLocaleString()}
-                    </span>
-                  </Space>
-                }
-              />
-            </List.Item>
-          )}
-        />
-      )}
-    </div>
+      </Content>
+    </Layout>
   );
-}; 
+};
+
+export default FileBrowser; 

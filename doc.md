@@ -2,7 +2,44 @@ I want to build a uniform web-based file browser for our data analytics tool to 
 
 In this new file browser, if we detect any folder that contains a .session file, we would identify this whole folder to be a 'session project' and offer our user to 'open' this folder as a session project, instead of continuing to dive deep into it. 
 
+Functions to be supported:
+1.support enter the path and dynamic filtering when entering word or character. The dynamic filter should be case sensitive. 
+2.recognize the file/session/project type and show the selected type before other types. 
+3.remember the previous location for each type 
+4.navigate to parent folder. 
+5.add a new folder
+6.rename
+7.delete
 
+new open dialogue:
+1. text entry dialogue added to to crop of the screen, user can paste full path including file name.  
+2. three icons after the entry:
+    1. up arrow to navigate to parent folder
+    2. add new folder icon
+    3. quick access icon
+        1. shall be disabled unless user has selected a folder to quick access
+        2. only folders can be quick accessed, not files. 
+        3. folder name displays in the column on the left
+        4. note: current functionality of dragging a folder into the left column shall remain with no changes. quick access displayed in left column shall still have the same right click menu options that exist now: “open, rename, and remove”
+
+Add the following to the right click menu option on a folder:
+1. Sort select by Type First (checked by default)
+2. Rename
+3. Delete 
+
+So in the end, the right click menu should have all of the following options:
+
+open with file manager 
+copy location
+add to quick access 
+show hidden files
+show size column 
+show time
+sort folders before files
+sort selected type first
+new folder
+rename
+delete 
 
 The frontend of this file browser is planned to build with TypeScript/React/Tailwind CSS/AntD, and the backend of this file browser is planned to build with Python/FastAPI. 
 
