@@ -113,4 +113,31 @@ export async function deleteItem(itemPath: string): Promise<DeleteItemResponse> 
     console.error(`Error deleting item '${itemPath}':`, error);
     throw error;
   }
+}
+
+export interface RenameItemResponse {
+  message: string;
+  new_path: string;
+  new_name: string;
+}
+
+export async function renameItem(itemPath: string, newName: string): Promise<RenameItemResponse> {
+  try {
+    const response = await fetch(`${API_BASE}/rename-item`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({ item_path: itemPath, new_name: newName }),
+    });
+
+    const data = await response.json();
+    if (!response.ok) {
+      throw new Error(data.detail || 'Failed to rename item');
+    }
+    return data;
+  } catch (error) {
+    console.error(`Error renaming item '${itemPath}' to '${newName}':`, error);
+    throw error;
+  }
 } 

@@ -1,5 +1,5 @@
 import React, { useState, useEffect, ChangeEvent, KeyboardEvent } from 'react';
-import { Layout, List, Button, Breadcrumb, Spin, message, Tooltip, Input, Modal } from 'antd';
+import { Layout, List, Button, Breadcrumb, Spin, message, Tooltip, Input, Modal, Menu, Dropdown } from 'antd';
 import {
   FolderOutlined,
   FileOutlined,
@@ -9,6 +9,7 @@ import {
   SendOutlined,
   FolderAddOutlined,
   DeleteOutlined,
+  EditOutlined,
 } from '@ant-design/icons';
 import { useParams, useNavigate } from 'react-router-dom';
 import QuickAccess, { FOLDER_PINNED_EVENT } from './QuickAccess';
@@ -19,7 +20,9 @@ import {
   FileListOptions,
   FileItem as ApiFileItem,
   deleteItem as deleteItemAPI,
-  DeleteItemResponse
+  DeleteItemResponse,
+  renameItem as renameItemAPI,
+  RenameItemResponse
 } from '../api';
 
 const { Content } = Layout;
@@ -51,6 +54,9 @@ const FileBrowser: React.FC = () => {
   const [creatingFolder, setCreatingFolder] = useState(false);
   const [selectedItem, setSelectedItem] = useState<FileItem | null>(null);
   const [clickTimeout, setClickTimeout] = useState<NodeJS.Timeout | null>(null);
+  const [isRenameModalVisible, setIsRenameModalVisible] = useState(false);
+  const [newNameInputValue, setNewNameInputValue] = useState('');
+  const [renamingItem, setRenamingItem] = useState(false);
 
   useEffect(() => {
     setPathInputValue(path);
@@ -208,8 +214,40 @@ const FileBrowser: React.FC = () => {
     setCreatingFolder(false);
   };
 
-  const handleCreateFolderCancel = () => {
+  const handleCreateFolderModalCancel = () => {
     setIsCreateFolderModalVisible(false);
+  };
+
+  const showRenameModalForItem = (item: FileItem) => {
+    setSelectedItem(item);
+    setNewNameInputValue(item.name);
+    setIsRenameModalVisible(true);
+  };
+
+  const handleRenameOk = async () => {
+    if (!selectedItem) return;
+    if (!newNameInputValue.trim() || newNameInputValue.trim() === selectedItem.name) {
+      if(!newNameInputValue.trim()) message.error('New name cannot be empty.');
+      setIsRenameModalVisible(false);
+      return;
+    }
+    setRenamingItem(true);
+    try {
+      await renameItemAPI(selectedItem.path, newNameInputValue.trim());
+      message.success(`Renamed '${selectedItem.name}' to '${newNameInputValue.trim()}'.`);
+      setIsRenameModalVisible(false);
+      setSelectedItem(null);
+      localFetchFiles();
+    } catch (error) {
+      const errorMessage = error instanceof Error ? error.message : 'Failed to rename item';
+      message.error(errorMessage);
+      console.error('Error renaming item:', error);
+    }
+    setRenamingItem(false);
+  };
+
+  const handleRenameModalCancel = () => {
+    setIsRenameModalVisible(false);
   };
 
   const pathParts = path.split('/').filter(Boolean);
@@ -243,7 +281,50 @@ const FileBrowser: React.FC = () => {
     return new Date(dateString).toLocaleString();
   };
 
-  if (loading && !creatingFolder) {
+  const handleDragStart = (event: React.DragEvent<HTMLDivElement>, item: FileItem) => {
+    if (item.type === 'directory') {
+      event.dataTransfer.setData('application/json', JSON.stringify({ 
+        name: item.name, 
+        path: item.path, 
+        type: item.type 
+      }));
+    } else {
+      // Prevent dragging files if only folders are allowed
+      event.preventDefault();
+    }
+  };
+
+  const renderItemActions = (item: FileItem) => {
+    // With context menus for both files and folders, inline actions might be redundant.
+    // If specific inline actions are still desired for files (e.g., a download button later),
+    // this function can be adjusted. For now, let's assume all primary actions are in context menus.
+    return []; 
+  };
+
+  const folderContextMenu = (item: FileItem) => (
+    <Menu onClick={({ key }) => {
+      if (key === 'pin') handlePinClick(item);
+      else if (key === 'rename') showRenameModalForItem(item);
+      else if (key === 'delete') handleDeleteItem(item);
+    }}>
+      <Menu.Item key="pin" icon={<PushpinOutlined />}>Add to Quick Access</Menu.Item>
+      <Menu.Item key="rename" icon={<EditOutlined />}>Rename</Menu.Item>
+      <Menu.Item key="delete" icon={<DeleteOutlined />} danger>Delete</Menu.Item>
+    </Menu>
+  );
+
+  const fileContextMenu = (item: FileItem) => (
+    <Menu onClick={({ key }) => {
+      if (key === 'rename') showRenameModalForItem(item);
+      else if (key === 'delete') handleDeleteItem(item);
+      // Add other file-specific actions here if needed in the future
+    }}>
+      <Menu.Item key="rename" icon={<EditOutlined />}>Rename</Menu.Item>
+      <Menu.Item key="delete" icon={<DeleteOutlined />} danger>Delete</Menu.Item>
+    </Menu>
+  );
+
+  if (loading && !creatingFolder && !renamingItem) {
     return (
       <div style={{ display: 'flex', justifyContent: 'center', alignItems: 'center', minHeight: '200px' }}>
         <Spin size="large" />
@@ -261,25 +342,13 @@ const FileBrowser: React.FC = () => {
     <Layout style={{ minHeight: '100vh' }}>
       <Content style={{ padding: '24px' }}>
         <div style={{ display: 'flex', gap: '24px' }}>
-          <div style={{ width: '250px' }}>
+          <div style={{ width: '200px', borderRight: '1px solid #f0f0f0', overflow: 'hidden' }}>
             <QuickAccess />
           </div>
-          <div style={{ flex: 1 }}>
+          <div style={{ flex: 1, overflow: 'hidden' }}>
             <div style={{ display: 'flex', alignItems: 'center', marginBottom: '16px' }}>
-              <Button
-                icon={<ArrowUpOutlined />}
-                onClick={handleNavigateParent}
-                disabled={!path}
-                style={{ marginRight: '8px' }}
-                aria-label="Navigate to parent folder"
-              />
-              <Input
-                value={pathInputValue}
-                onChange={handlePathInputChange}
-                onKeyPress={handlePathInputKeyPress}
-                placeholder="Enter path"
-                style={{ flexGrow: 1, marginRight: '8px' }}
-              />
+              <Button icon={<ArrowUpOutlined />} onClick={handleNavigateParent} disabled={!path} style={{ marginRight: '8px' }} aria-label="Navigate to parent folder" />
+              <Input value={pathInputValue} onChange={handlePathInputChange} onKeyPress={handlePathInputKeyPress} placeholder="Enter path" style={{ flexGrow: 1, marginRight: '8px' }} />
               <Button 
                 icon={<FolderAddOutlined />} 
                 onClick={showCreateFolderModal}
@@ -289,25 +358,10 @@ const FileBrowser: React.FC = () => {
               <Button 
                 icon={<SendOutlined />} 
                 onClick={handlePathInputSubmit}
-                style={{ marginRight: '8px' }}
+                style={{ marginRight: '8px' }} 
                 aria-label="Go to path"
               />
-              <Button
-                icon={<PushpinOutlined />}
-                onClick={() => selectedItem && handlePinClick(selectedItem)}
-                disabled={!selectedItem || selectedItem.type !== 'directory'}
-                style={{ marginRight: '8px' }}
-                aria-label="Pin selected folder to Quick Access"
-              />
-              <Tooltip title={selectedItem ? `Delete '${selectedItem.name}'` : "Delete selected item"}>
-                <Button
-                  icon={<DeleteOutlined />}
-                  onClick={() => selectedItem && handleDeleteItem(selectedItem)}
-                  disabled={!selectedItem}
-                  danger
-                  aria-label="Delete selected item"
-                />
-              </Tooltip>
+              <Button icon={<PushpinOutlined />} onClick={() => selectedItem && handlePinClick(selectedItem)} disabled={!selectedItem || selectedItem.type !== 'directory'} aria-label="Pin selected folder to Quick Access" />
             </div>
             <Breadcrumb
               items={breadcrumbItems}
@@ -315,9 +369,9 @@ const FileBrowser: React.FC = () => {
             />
             <Modal
               title="Create New Folder"
-              visible={isCreateFolderModalVisible}
+              open={isCreateFolderModalVisible}
               onOk={handleCreateFolderOk}
-              onCancel={handleCreateFolderCancel}
+              onCancel={handleCreateFolderModalCancel}
               confirmLoading={creatingFolder}
               okText="Create"
             >
@@ -328,61 +382,42 @@ const FileBrowser: React.FC = () => {
                 onKeyPress={(e) => e.key === 'Enter' && handleCreateFolderOk()}
               />
             </Modal>
-            {(loading && !creatingFolder) ? (
-              <div style={{ display: 'flex', justifyContent: 'center', alignItems: 'center', minHeight: '200px' }}>
-                <Spin size="large" />
-              </div>
+            <Modal
+              title="Rename Item"
+              open={isRenameModalVisible}
+              onOk={handleRenameOk}
+              onCancel={handleRenameModalCancel}
+              confirmLoading={renamingItem}
+              okText="Rename"
+            >
+              <Input 
+                value={newNameInputValue}
+                onChange={(e) => setNewNameInputValue(e.target.value)}
+                onKeyPress={(e) => e.key === 'Enter' && handleRenameOk()}
+              />
+            </Modal>
+            {(loading && !creatingFolder && !renamingItem) ? (
+              <div style={{ display: 'flex', justifyContent: 'center', alignItems: 'center', minHeight: '200px' }}><Spin size="large" /></div>
             ) : (
               <List
                 bordered
                 dataSource={files}
                 renderItem={(item: FileItem) => {
                   const isSelected = selectedItem?.path === item.path && selectedItem?.name === item.name;
-                  return (
+                  const listItemContent = (
                     <List.Item
-                      actions={[
-                        ...(item.type === 'directory' ? [
-                          <Tooltip title="Pin to Quick Access" key="pin">
-                            <Button
-                              type="text"
-                              icon={<PushpinOutlined />}
-                              onClick={(e: React.MouseEvent) => {
-                                e.stopPropagation();
-                                handlePinClick(item);
-                              }}
-                            />
-                          </Tooltip>
-                        ] : []),
-                        <Tooltip title={`Delete '${item.name}'`} key="delete">
-                          <Button
-                            type="text"
-                            danger
-                            icon={<DeleteOutlined />}
-                            onClick={(e: React.MouseEvent) => {
-                              e.stopPropagation();
-                              handleDeleteItem(item);
-                            }}
-                          />
-                        </Tooltip>
-                      ]}
+                      actions={renderItemActions(item)}
                       onClick={() => handleItemClick(item)}
                       style={{
                         cursor: 'pointer',
                         backgroundColor: isSelected ? '#e6f7ff' : 'transparent',
                       }}
+                      draggable={item.type === 'directory'}
+                      onDragStart={(e) => handleDragStart(e, item)}
                     >
                       <List.Item.Meta
                         avatar={item.type === 'directory' ? <FolderOutlined /> : <FileOutlined />}
-                        title={
-                          <span>
-                            {item.name}
-                            {item.session && (
-                              <Tooltip title={`Session Project (${item.session_info?.file_count} files)`}>
-                                <InfoCircleOutlined style={{ marginLeft: 8, color: '#1890ff' }} />
-                              </Tooltip>
-                            )}
-                          </span>
-                        }
+                        title={item.name} 
                         description={
                           <div style={{ display: 'flex', gap: '16px' }}>
                             {item.type === 'file' && (
@@ -394,6 +429,28 @@ const FileBrowser: React.FC = () => {
                       />
                     </List.Item>
                   );
+
+                  if (item.type === 'directory') {
+                    return (
+                      <Dropdown menu={{ items: [
+                        { key: 'pin', label: 'Add to Quick Access', icon: <PushpinOutlined />, onClick: () => handlePinClick(item) },
+                        { key: 'rename', label: 'Rename', icon: <EditOutlined />, onClick: () => showRenameModalForItem(item) },
+                        { key: 'delete', label: 'Delete', icon: <DeleteOutlined />, danger: true, onClick: () => handleDeleteItem(item) },
+                      ]}} trigger={['contextMenu']}>
+                        <div>{listItemContent}</div> 
+                      </Dropdown>
+                    );
+                  } else if (item.type === 'file') {
+                    return (
+                      <Dropdown menu={{ items: [
+                        { key: 'rename', label: 'Rename', icon: <EditOutlined />, onClick: () => showRenameModalForItem(item) },
+                        { key: 'delete', label: 'Delete', icon: <DeleteOutlined />, danger: true, onClick: () => handleDeleteItem(item) },
+                      ]}} trigger={['contextMenu']}>
+                        <div>{listItemContent}</div>
+                      </Dropdown>
+                    );
+                  }
+                  return listItemContent;
                 }}
               />
             )}

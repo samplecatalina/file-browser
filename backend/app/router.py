@@ -29,6 +29,10 @@ class CreateFolderRequest(BaseModel):
     current_path: str
     folder_name: str
 
+class RenameItemRequest(BaseModel):
+    item_path: str  # Current relative path of the item
+    new_name: str   # Just the new name, not a path
+
 # In-memory storage for quick access items (in production, use a database)
 quick_access_items: List[QuickAccessItem] = []
 
@@ -224,4 +228,52 @@ def delete_item_endpoint(path_to_delete: str = Query(..., alias="path")):
 
     except Exception as e:
         logger.error(f"Error deleting item {target_path}: {str(e)}")
-        raise HTTPException(status_code=500, detail=f"Could not delete item: {str(e)}") 
+        raise HTTPException(status_code=500, detail=f"Could not delete item: {str(e)}")
+
+@router.post("/rename-item")
+def rename_item_endpoint(request: RenameItemRequest):
+    """Rename a file or directory."""
+    logger.debug(f"Attempting to rename item at '{request.item_path}' to '{request.new_name}'")
+
+    if not request.item_path or not request.new_name:
+        raise HTTPException(status_code=400, detail="Item path and new name cannot be empty.")
+
+    # Validate new_name (basic validation: no slashes, not just dots)
+    if "/" in request.new_name or "\\" in request.new_name:
+        raise HTTPException(status_code=400, detail="New name cannot contain path separators.")
+    if request.new_name == "." or request.new_name == ".." or not request.new_name.strip():
+         raise HTTPException(status_code=400, detail="Invalid new name.")
+
+    current_target_path = (BASE_DIR / request.item_path).resolve()
+    logger.debug(f"Current full path for rename: {current_target_path}")
+
+    # Security check: ensure current_target_path is within BASE_DIR and not BASE_DIR itself
+    if not current_target_path.exists():
+        logger.error(f"Item to rename does not exist: {current_target_path}")
+        raise HTTPException(status_code=404, detail="Item not found.")
+    
+    if BASE_DIR not in current_target_path.parents or current_target_path == BASE_DIR:
+        logger.error(f"Attempt to rename outside base directory or base directory itself: {current_target_path}")
+        raise HTTPException(status_code=403, detail="Rename forbidden at this path.")
+
+    # Construct the new path: it should be in the same directory as the original item
+    parent_dir = current_target_path.parent
+    new_target_path = (parent_dir / request.new_name).resolve()
+    logger.debug(f"New full path after rename: {new_target_path}")
+
+    if new_target_path.exists():
+        logger.warning(f"An item with name '{request.new_name}' already exists in {parent_dir}")
+        raise HTTPException(status_code=409, detail=f"An item named '{request.new_name}' already exists.")
+
+    try:
+        current_target_path.rename(new_target_path)
+        logger.info(f"Successfully renamed '{current_target_path}' to '{new_target_path}'")
+        # Return the new relative path and name
+        return {
+            "message": "Item renamed successfully", 
+            "new_path": str(new_target_path.relative_to(BASE_DIR)),
+            "new_name": new_target_path.name
+        }
+    except Exception as e:
+        logger.error(f"Error renaming item {current_target_path} to {new_target_path}: {str(e)}")
+        raise HTTPException(status_code=500, detail=f"Could not rename item: {str(e)}") 
