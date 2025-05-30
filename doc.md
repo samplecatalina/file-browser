@@ -2,6 +2,8 @@ I want to build a uniform web-based file browser for our data analytics tool to 
 
 In this new file browser, if we detect any folder that contains a .session file, we would identify this whole folder to be a 'session project' and offer our user to 'open' this folder as a session project, instead of continuing to dive deep into it. 
 
+The frontend of this file browser is planned to build with TypeScript/React/Tailwind CSS/AntD, and the backend of this file browser is planned to build with Python/FastAPI. 
+
 Functions to be supported:
 1.support enter the path and dynamic filtering when entering word or character. The dynamic filter should be case sensitive. 
 2.recognize the file/session/project type and show the selected type before other types. 
@@ -41,7 +43,6 @@ new folder
 rename
 delete 
 
-The frontend of this file browser is planned to build with TypeScript/React/Tailwind CSS/AntD, and the backend of this file browser is planned to build with Python/FastAPI. 
 
 ## Overview
 

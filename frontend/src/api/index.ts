@@ -66,4 +66,51 @@ export function formatFileSize(bytes?: number): string {
   }
   
   return `${size.toFixed(1)} ${units[unitIndex]}`;
+}
+
+export interface CreateFolderResponse {
+  message: string;
+  path: string;
+}
+
+export async function createFolder(currentPath: string, folderName: string): Promise<CreateFolderResponse> {
+  try {
+    const response = await fetch(`${API_BASE}/folders`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({ current_path: currentPath, folder_name: folderName }),
+    });
+
+    const data = await response.json();
+    if (!response.ok) {
+      throw new Error(data.detail || 'Failed to create folder');
+    }
+    return data;
+  } catch (error) {
+    console.error('Error creating folder:', error);
+    throw error;
+  }
+}
+
+export interface DeleteItemResponse {
+  message: string;
+}
+
+export async function deleteItem(itemPath: string): Promise<DeleteItemResponse> {
+  try {
+    const response = await fetch(`${API_BASE}/items?path=${encodeURIComponent(itemPath)}`, {
+      method: 'DELETE',
+    });
+
+    const data = await response.json();
+    if (!response.ok) {
+      throw new Error(data.detail || 'Failed to delete item');
+    }
+    return data;
+  } catch (error) {
+    console.error(`Error deleting item '${itemPath}':`, error);
+    throw error;
+  }
 } 

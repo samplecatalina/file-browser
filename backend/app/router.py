@@ -4,6 +4,7 @@ from typing import List, Optional
 from datetime import datetime
 import os
 import logging
+import shutil # Added for recursive directory deletion
 from pydantic import BaseModel
 
 # Configure logging
@@ -23,6 +24,10 @@ class QuickAccessItem(BaseModel):
 
 class QuickAccessRequest(BaseModel):
     path: str
+
+class CreateFolderRequest(BaseModel):
+    current_path: str
+    folder_name: str
 
 # In-memory storage for quick access items (in production, use a database)
 quick_access_items: List[QuickAccessItem] = []
@@ -147,4 +152,76 @@ def remove_quick_access(path: str) -> dict:
             quick_access_items.pop(i)
             return {"message": "Folder removed from quick access"}
     
-    raise HTTPException(404, "Quick access item not found") 
+    raise HTTPException(404, "Quick access item not found")
+
+@router.post("/folders", status_code=201)
+def create_folder_endpoint(request: CreateFolderRequest):
+    """Create a new folder in the specified path."""
+    logger.debug(f"Attempting to create folder '{request.folder_name}' in path '{request.current_path}'")
+    
+    # Validate folder name (basic validation)
+    if not request.folder_name or "/" in request.folder_name or "\\" in request.folder_name:
+        logger.error(f"Invalid folder name: {request.folder_name}")
+        raise HTTPException(status_code=400, detail="Invalid folder name. Cannot contain slashes.")
+
+    base_target_path = (BASE_DIR / request.current_path).resolve()
+    logger.debug(f"Base target path for new folder: {base_target_path}")
+
+    # Security check: ensure the base_target_path is within BASE_DIR
+    if not base_target_path.exists() or (BASE_DIR not in base_target_path.parents and base_target_path != BASE_DIR):
+        logger.error(f"Base path does not exist or is outside data directory: {base_target_path}")
+        raise HTTPException(status_code=404, detail="Base path not found or invalid.")
+
+    new_folder_path = (base_target_path / request.folder_name).resolve()
+    logger.debug(f"Full path for new folder: {new_folder_path}")
+
+    if new_folder_path.exists():
+        logger.warning(f"Folder '{request.folder_name}' already exists at {base_target_path}")
+        raise HTTPException(status_code=409, detail=f"Folder '{request.folder_name}' already exists.")
+    
+    try:
+        new_folder_path.mkdir(parents=False, exist_ok=False) # parents=False to avoid creating intermediate dirs, exist_ok=False to ensure it's new
+        logger.info(f"Successfully created folder: {new_folder_path}")
+        return {"message": "Folder created successfully", "path": str(new_folder_path.relative_to(BASE_DIR))}
+    except Exception as e:
+        logger.error(f"Error creating folder {new_folder_path}: {str(e)}")
+        raise HTTPException(status_code=500, detail=f"Could not create folder: {str(e)}")
+
+@router.delete("/items")
+def delete_item_endpoint(path_to_delete: str = Query(..., alias="path")):
+    """Delete a file or directory at the specified path."""
+    logger.debug(f"Attempting to delete item at path: '{path_to_delete}'")
+
+    if not path_to_delete: # Should be caught by Query(...) but good to double check
+        logger.error("Path to delete cannot be empty.")
+        raise HTTPException(status_code=400, detail="Path cannot be empty.")
+
+    target_path = (BASE_DIR / path_to_delete).resolve()
+    logger.debug(f"Full target path for deletion: {target_path}")
+
+    # Security check: ensure the target_path is within BASE_DIR and not BASE_DIR itself
+    if not target_path.exists():
+        logger.error(f"Item to delete does not exist: {target_path}")
+        raise HTTPException(status_code=404, detail="Item not found.")
+    
+    if BASE_DIR not in target_path.parents or target_path == BASE_DIR:
+        logger.error(f"Attempt to delete outside base directory or base directory itself: {target_path}")
+        raise HTTPException(status_code=403, detail="Deletion forbidden at this path.")
+
+    try:
+        if target_path.is_dir():
+            shutil.rmtree(target_path)
+            logger.info(f"Successfully deleted directory: {target_path}")
+            return {"message": f"Directory '{target_path.name}' deleted successfully."}
+        elif target_path.is_file():
+            target_path.unlink()
+            logger.info(f"Successfully deleted file: {target_path}")
+            return {"message": f"File '{target_path.name}' deleted successfully."}
+        else:
+            # Should not happen if .exists() is true and it's not dir/file (e.g. symlink not followed)
+            logger.error(f"Target is neither a file nor a directory: {target_path}")
+            raise HTTPException(status_code=500, detail="Item type not supported for deletion.")
+
+    except Exception as e:
+        logger.error(f"Error deleting item {target_path}: {str(e)}")
+        raise HTTPException(status_code=500, detail=f"Could not delete item: {str(e)}") 
