@@ -1,4 +1,4 @@
-import React, { useState, useEffect, ChangeEvent, KeyboardEvent } from 'react';
+import React, { useState, useEffect, ChangeEvent, KeyboardEvent, DragEvent } from 'react';
 import { Layout, List, Button, Breadcrumb, Spin, message, Tooltip, Input, Modal, Menu, Dropdown } from 'antd';
 import {
   FolderOutlined,
@@ -10,6 +10,8 @@ import {
   FolderAddOutlined,
   DeleteOutlined,
   EditOutlined,
+  SortAscendingOutlined,
+  ProjectOutlined,
 } from '@ant-design/icons';
 import { useParams, useNavigate } from 'react-router-dom';
 import QuickAccess, { FOLDER_PINNED_EVENT } from './QuickAccess';
@@ -57,6 +59,8 @@ const FileBrowser: React.FC = () => {
   const [isRenameModalVisible, setIsRenameModalVisible] = useState(false);
   const [newNameInputValue, setNewNameInputValue] = useState('');
   const [renamingItem, setRenamingItem] = useState(false);
+  const [sortState, setSortState] = useState<number>(0);
+  const [displayedFiles, setDisplayedFiles] = useState<FileItem[]>([]);
 
   useEffect(() => {
     setPathInputValue(path);
@@ -85,6 +89,57 @@ const FileBrowser: React.FC = () => {
     console.log('Path changed to:', path);
     localFetchFiles();
   }, [path]);
+
+  useEffect(() => {
+    let sorted = [...files];
+
+    const getFileExtension = (filename: string): string => {
+      const parts = filename.split('.');
+      if (parts.length > 1) {
+        return parts.pop()!.toLowerCase();
+      }
+      return '';
+    };
+
+    if (sortState === 0) {
+      sorted.sort((a, b) => {
+        const typePriority = (item: FileItem) => {
+          if (item.type === 'directory' && item.session) return 1;
+          if (item.type === 'directory') return 2;
+          return 3;
+        };
+        const priorityA = typePriority(a);
+        const priorityB = typePriority(b);
+        if (priorityA !== priorityB) return priorityA - priorityB;
+
+        if (a.type === 'directory') return a.name.localeCompare(b.name);
+        const extA = getFileExtension(a.name);
+        const extB = getFileExtension(b.name);
+        if (extA !== extB) return extB.localeCompare(extA);
+        return a.name.localeCompare(b.name);
+      });
+    } else if (sortState === 1) {
+      sorted.sort((a, b) => {
+        const typePriority = (item: FileItem) => {
+          if (item.type === 'file') return 1;
+          if (item.type === 'directory' && !item.session) return 2;
+          if (item.type === 'directory' && item.session) return 3;
+          return 4;
+        };
+        const priorityA = typePriority(a);
+        const priorityB = typePriority(b);
+        if (priorityA !== priorityB) return priorityA - priorityB;
+
+        if (a.type === 'file') {
+          const extA = getFileExtension(a.name);
+          const extB = getFileExtension(b.name);
+          if (extA !== extB) return extA.localeCompare(extB);
+        }
+        return a.name.localeCompare(b.name);
+      });
+    }
+    setDisplayedFiles(sorted);
+  }, [files, sortState]);
 
   const handleItemClick = (item: FileItem) => {
     if (clickTimeout) {
@@ -250,16 +305,20 @@ const FileBrowser: React.FC = () => {
     setIsRenameModalVisible(false);
   };
 
+  const handleSortToggle = () => {
+    setSortState(currentState => (currentState + 1) % 2);
+  };
+
   const pathParts = path.split('/').filter(Boolean);
   const breadcrumbItems = [
     {
-      title: 'Root',
+      title: <span style={{ cursor: 'pointer' }}>Root</span>,
       onClick: () => navigate('/browse')
     },
     ...pathParts.map((part: string, index: number) => {
       const currentPath = pathParts.slice(0, index + 1).join('/');
       return {
-        title: part,
+        title: <span style={{ cursor: 'pointer' }}>{part}</span>,
         onClick: () => navigate(`/browse/${currentPath}`)
       };
     })
@@ -289,15 +348,11 @@ const FileBrowser: React.FC = () => {
         type: item.type 
       }));
     } else {
-      // Prevent dragging files if only folders are allowed
       event.preventDefault();
     }
   };
 
   const renderItemActions = (item: FileItem) => {
-    // With context menus for both files and folders, inline actions might be redundant.
-    // If specific inline actions are still desired for files (e.g., a download button later),
-    // this function can be adjusted. For now, let's assume all primary actions are in context menus.
     return []; 
   };
 
@@ -317,7 +372,6 @@ const FileBrowser: React.FC = () => {
     <Menu onClick={({ key }) => {
       if (key === 'rename') showRenameModalForItem(item);
       else if (key === 'delete') handleDeleteItem(item);
-      // Add other file-specific actions here if needed in the future
     }}>
       <Menu.Item key="rename" icon={<EditOutlined />}>Rename</Menu.Item>
       <Menu.Item key="delete" icon={<DeleteOutlined />} danger>Delete</Menu.Item>
@@ -361,7 +415,14 @@ const FileBrowser: React.FC = () => {
                 style={{ marginRight: '8px' }} 
                 aria-label="Go to path"
               />
-              <Button icon={<PushpinOutlined />} onClick={() => selectedItem && handlePinClick(selectedItem)} disabled={!selectedItem || selectedItem.type !== 'directory'} aria-label="Pin selected folder to Quick Access" />
+              <Button icon={<PushpinOutlined />} onClick={() => selectedItem && handlePinClick(selectedItem)} disabled={!selectedItem || selectedItem.type !== 'directory'} style={{ marginRight: '8px' }} aria-label="Pin selected folder to Quick Access" />
+              <Tooltip title="Sort items">
+                <Button 
+                  icon={<SortAscendingOutlined />} 
+                  onClick={handleSortToggle} 
+                  aria-label="Toggle sort order"
+                />
+              </Tooltip>
             </div>
             <Breadcrumb
               items={breadcrumbItems}
@@ -401,7 +462,7 @@ const FileBrowser: React.FC = () => {
             ) : (
               <List
                 bordered
-                dataSource={files}
+                dataSource={displayedFiles}
                 renderItem={(item: FileItem) => {
                   const isSelected = selectedItem?.path === item.path && selectedItem?.name === item.name;
                   const listItemContent = (
@@ -416,7 +477,13 @@ const FileBrowser: React.FC = () => {
                       onDragStart={(e) => handleDragStart(e, item)}
                     >
                       <List.Item.Meta
-                        avatar={item.type === 'directory' ? <FolderOutlined /> : <FileOutlined />}
+                        avatar={
+                          item.type === 'directory' 
+                            ? item.session 
+                              ? <ProjectOutlined />
+                              : <FolderOutlined />
+                            : <FileOutlined />
+                        }
                         title={item.name} 
                         description={
                           <div style={{ display: 'flex', gap: '16px' }}>
